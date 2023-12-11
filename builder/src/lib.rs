@@ -55,7 +55,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let set_method = if let Some(inner_ty) = ty_inner_type("Option", ty) {
             quote!(
                 pub fn #name(&mut self, #name: #inner_ty) -> &mut Self {
-                    self.#name = Some(#name);
+                    self.#name = std::option::Option::Some(#name);
                     self
                 }
             )
@@ -69,7 +69,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         } else {
             quote!(
                 pub fn #name(&mut self, #name: #ty) -> &mut Self {
-                    self.#name = Some(#name);
+                    self.#name = std::option::Option::Some(#name);
                     self
                 }
             )
@@ -85,28 +85,37 @@ pub fn derive(input: TokenStream) -> TokenStream {
         }
     });
 
-    fn builder_of(f: &syn::Field) -> Option<&syn::MetaList> {
-        for attr in &f.attrs {
-            if attr.path().segments.len() == 1 && attr.path().segments[0].ident == "builder" {
-                return Some(attr.meta.require_list().unwrap());
-            }
-        }
-        None
+    fn builder_of(f: &syn::Field) -> Option<&syn::Attribute> {
+        f.attrs.iter().find(|&attr| {
+            attr.path().segments.len() == 1 && attr.path().segments[0].ident == "builder"
+        })
+    }
+
+    fn mk_err<T: quote::ToTokens>(t: T) -> Option<(bool, proc_macro2::TokenStream)> {
+        Some((
+            false,
+            syn::Error::new_spanned(t, "expected `builder(each = \"...\")`").to_compile_error(),
+        ))
     }
 
     fn extend_method(f: &syn::Field) -> Option<(bool, proc_macro2::TokenStream)> {
         let name = f.ident.as_ref().unwrap();
-        let l = builder_of(f)?;
+        let attr = builder_of(f)?;
+        let l = attr.meta.require_list().unwrap();
 
         for token in l.tokens.clone() {
             match token {
                 TokenTree::Ident(ref i) => {
-                    assert_eq!(i, "each", "expected 'each', found {}", i)
+                    if i != "each" {
+                        return mk_err(l);
+                    }
                 }
                 TokenTree::Punct(ref p) => {
-                    assert_eq!(p.as_char(), '=', "expected '=', found {}", p)
+                    if p.as_char() != '=' {
+                        return mk_err(l);
+                    }
                 }
-                TokenTree::Group(g) => panic!("unexpected group {}", g),
+                TokenTree::Group(_) => return mk_err(l),
                 TokenTree::Literal(ref l) => match syn::Lit::new(l.clone()) {
                     syn::Lit::Str(s) => {
                         let arg = syn::Ident::new(&s.value(), s.span());
@@ -143,9 +152,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let build_empty = fields.iter().map(|f| {
         let name = &f.ident;
         if builder_of(f).is_some() {
-            quote! { #name: Vec::new() }
+            quote! { #name: std::vec::Vec::new() }
         } else {
-            quote! { #name: None }
+            quote! { #name: std::option::Option::None }
         }
     });
 
@@ -157,7 +166,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         impl #bident {
             #(#methods)*
 
-            pub fn build(&self) -> Result<#name, Box<dyn std::error::Error>> {
+            pub fn build(&self) -> std::result::Result<#name, std::boxed::Box<dyn std::error::Error>> {
                 Ok(
                     #name {
                         #(#build_fields,)*
