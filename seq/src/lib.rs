@@ -60,26 +60,18 @@ impl SeqMacroInput {
             }
             proc_macro2::TokenTree::Ident(mut ident) => {
                 let mut peek = ts.clone();
-                match peek.next() {
-                    Some(proc_macro2::TokenTree::Punct(ref punct)) if punct.as_char() == '~' => {
+                match (peek.next(), peek.next()) {
+                    (
+                        Some(proc_macro2::TokenTree::Punct(ref punct)),
+                        Some(proc_macro2::TokenTree::Ident(ref ident2)),
+                    ) if punct.as_char() == '~' && ident2 == &self.ident => {
+                        ident = proc_macro2::Ident::new(&format!("{}{}", ident, i), ident.span());
+                        *ts = peek.clone();
                         match peek.next() {
-                            Some(proc_macro2::TokenTree::Ident(ref ident2))
-                                if ident2 == &self.ident =>
+                            Some(proc_macro2::TokenTree::Punct(ref punct))
+                                if punct.as_char() == '~' =>
                             {
-                                ident = proc_macro2::Ident::new(
-                                    &format!("{}{}", ident, i),
-                                    ident.span(),
-                                );
-                                *ts = peek.clone();
-
-                                match peek.next() {
-                                    Some(proc_macro2::TokenTree::Punct(ref punct))
-                                        if punct.as_char() == '~' =>
-                                    {
-                                        *ts = peek;
-                                    }
-                                    _ => {}
-                                }
+                                *ts = peek;
                             }
                             _ => {}
                         }
