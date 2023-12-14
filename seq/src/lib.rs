@@ -7,6 +7,7 @@ struct SeqMacroInput {
     from: syn::LitInt,
     to: syn::LitInt,
     ident: syn::Ident,
+    inclusive: bool,
     tt: proc_macro2::TokenStream,
 }
 
@@ -15,11 +16,6 @@ impl From<SeqMacroInput> for proc_macro2::TokenStream {
         val.expand(val.tt.clone())
     }
 }
-// impl Into<proc_macro2::TokenStream> for SeqMacroInput {
-//     fn into(self) -> proc_macro2::TokenStream {
-//         self.expand(self.tt.clone())
-//     }
-// }
 
 #[derive(Copy, Clone, Debug)]
 enum Mode {
@@ -32,7 +28,14 @@ impl Parse for SeqMacroInput {
         let ident = syn::Ident::parse(input)?;
         let _in = input.parse::<Token![in]>()?;
         let from = syn::LitInt::parse(input)?;
-        let _dots = input.parse::<Token![..]>()?;
+
+        let inclusive = input.peek(Token![..=]);
+        if inclusive {
+            <Token![..=]>::parse(input)?;
+        } else {
+            <Token![..]>::parse(input)?;
+        }
+
         let to = syn::LitInt::parse(input)?;
         let content;
         let _braces = syn::braced!(content in input);
@@ -43,11 +46,23 @@ impl Parse for SeqMacroInput {
             to,
             tt,
             ident,
+            inclusive,
         })
     }
 }
 
 impl SeqMacroInput {
+    fn range(&self) -> impl Iterator<Item = u64> {
+        let from = self.from.base10_parse::<u64>().unwrap();
+        let to = self.to.base10_parse::<u64>().unwrap();
+
+        if self.inclusive {
+            from..(to + 1)
+        } else {
+            from..to
+        }
+    }
+
     fn expand2(
         &self,
         tt: proc_macro2::TokenTree,
@@ -111,9 +126,8 @@ impl SeqMacroInput {
                             *mutated = true;
                             *ts = peek;
 
-                            let from = self.from.base10_parse::<u64>().unwrap();
-                            let to = self.to.base10_parse::<u64>().unwrap();
-                            return (from..to)
+                            return self
+                                .range()
                                 .map(|i| self.expand_pass(rep.stream(), Mode::ReplaceIdent(i)))
                                 .map(|(ts, _)| ts)
                                 .collect();
@@ -149,9 +163,7 @@ impl SeqMacroInput {
             return out;
         }
 
-        let from = self.from.base10_parse::<u64>().unwrap();
-        let to = self.to.base10_parse::<u64>().unwrap();
-        (from..to)
+        self.range()
             .map(|i| self.expand_pass(stream.clone(), Mode::ReplaceIdent(i)))
             .map(|(ts, _)| ts)
             .collect()
