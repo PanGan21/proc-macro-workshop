@@ -49,7 +49,15 @@ impl syn::visit_mut::VisitMut for LexicographicMatching {
             m.attrs.retain(|a| !a.path().is_ident("sorted"));
             let mut names = Vec::new();
             for arm in m.arms.iter() {
-                let path = get_arm_path(&arm.pat).unwrap();
+                let path = if let Some(path) = get_arm_path(&arm.pat) {
+                    path
+                } else {
+                    self.errors.push(syn::Error::new_spanned(
+                        &arm.pat,
+                        "unsupported by #[sorted]",
+                    ));
+                    continue;
+                };
                 let name = path_as_string(path);
                 if names.last().map(|last| &name < last).unwrap_or(false) {
                     let next_lex_i = names.binary_search(&name).unwrap_err();
@@ -95,6 +103,6 @@ pub fn check(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut lm = LexicographicMatching::default();
     lm.visit_item_fn_mut(&mut f);
     let mut ts = quote! {#f};
-    ts.extend(lm.errors.into_iter().map(|e| e.to_compile_error()));
+    ts.extend(lm.errors.into_iter().take(1).map(|e| e.to_compile_error()));
     ts.into()
 }
