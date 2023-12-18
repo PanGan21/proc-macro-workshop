@@ -49,12 +49,13 @@ impl syn::visit_mut::VisitMut for LexicographicMatching {
             m.attrs.retain(|a| !a.path().is_ident("sorted"));
             let mut names = Vec::new();
             for arm in m.arms.iter() {
-                let name = get_arm_name(&arm.pat).unwrap();
+                let path = get_arm_path(&arm.pat).unwrap();
+                let name = path_as_string(path);
                 if names.last().map(|last| &name < last).unwrap_or(false) {
                     let next_lex_i = names.binary_search(&name).unwrap_err();
 
-                    self.errors.push(syn::Error::new(
-                        arm.span(),
+                    self.errors.push(syn::Error::new_spanned(
+                        path,
                         format!("{} should sort before {}", name, names[next_lex_i]),
                     ));
                 }
@@ -66,17 +67,22 @@ impl syn::visit_mut::VisitMut for LexicographicMatching {
 }
 
 fn path_as_string(path: &syn::Path) -> String {
-    format!("{}", quote! {#path})
+    path.segments
+        .iter()
+        .map(|s| format!("{}", quote! {#s}))
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
-fn get_arm_name(arm: &syn::Pat) -> Option<String> {
+fn get_arm_path(arm: &syn::Pat) -> Option<&syn::Path> {
     match arm {
         syn::Pat::Ident(syn::PatIdent {
             subpat: Some((_, ref sp)),
             ..
-        }) => get_arm_name(sp),
-        syn::Pat::Struct(ref s) => Some(path_as_string(&s.path)),
-        syn::Pat::TupleStruct(ref t) => Some(path_as_string(&t.path)),
+        }) => get_arm_path(sp),
+        syn::Pat::Path(ref p) => Some(&p.path),
+        syn::Pat::Struct(ref s) => Some(&s.path),
+        syn::Pat::TupleStruct(ref t) => Some(&t.path),
         _ => None,
     }
 }
